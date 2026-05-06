@@ -7,7 +7,7 @@ import {
   setReadOnly,
   pushOutput,
 } from "./queue.js";
-import { setApiKey, setCreator, setFreesoundKey, getApiKeyStatus } from "./auth.js";
+import { setApiKey, setCreator, setFreesoundKey, setCraftpixCookie, getApiKeyStatus } from "./auth.js";
 
 export const HTTP_PORT = Number(process.env.SUPERTOOL_PORT ?? 7977);
 export const AUTH_TOKEN = process.env.SUPERTOOL_TOKEN ?? "";
@@ -65,12 +65,14 @@ export function startHttpBridge(): http.Server {
           creatorUserId?: string;
           creatorGroupId?: string;
           freesoundApiKey?: string | null;
+          craftpixCookie?: string | null;
         };
         if (body?.pluginVersion) setPluginInfo({ pluginVersion: body.pluginVersion });
         if (body?.studioPlace) setPluginInfo({ studioPlace: body.studioPlace });
         // Receive secrets from plugin (sent every poll so we repopulate after server restart)
         if ("apiKey" in body) setApiKey(body.apiKey);
         if ("freesoundApiKey" in body) setFreesoundKey(body.freesoundApiKey);
+        if ("craftpixCookie" in body) setCraftpixCookie(body.craftpixCookie);
         if (body.creatorUserId !== undefined || body.creatorGroupId !== undefined) {
           setCreator(body.creatorUserId, body.creatorGroupId);
         }

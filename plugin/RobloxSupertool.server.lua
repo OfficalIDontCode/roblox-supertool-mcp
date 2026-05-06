@@ -10,7 +10,7 @@
     v0.4.0
 ]]
 
-local PLUGIN_VERSION = "0.4.0"
+local PLUGIN_VERSION = "0.5.0"
 local SERVER_URL     = "http://127.0.0.1:7977"
 local POLL_INTERVAL  = 0.2
 local OUTPUT_FLUSH_INTERVAL = 0.5
@@ -74,6 +74,7 @@ local SETTING_API_KEY         = "supertool_api_key"
 local SETTING_CREATOR_USER    = "supertool_creator_user_id"
 local SETTING_CREATOR_GROUP   = "supertool_creator_group_id"
 local SETTING_FREESOUND_KEY   = "supertool_freesound_api_key"
+local SETTING_CRAFTPIX_COOKIE = "supertool_craftpix_cookie"
 
 local function loadSetting(name)
     local ok, value = pcall(plugin.GetSetting, plugin, name)
@@ -89,7 +90,12 @@ local apiKey          = loadSetting(SETTING_API_KEY)
 local creatorUserId   = loadSetting(SETTING_CREATOR_USER)
 local creatorGroupId  = loadSetting(SETTING_CREATOR_GROUP)
 local freesoundApiKey = loadSetting(SETTING_FREESOUND_KEY)
-local apiKeyStatus    = { isConfigured = false, freesound = { isConfigured = false } }
+local craftpixCookie  = loadSetting(SETTING_CRAFTPIX_COOKIE)
+local apiKeyStatus    = {
+    isConfigured = false,
+    freesound = { isConfigured = false },
+    craftpix  = { isConfigured = false },
+}
 
 ------------------------------------------------------------------------------
 -- Path resolution
@@ -3092,6 +3098,7 @@ local function pollOnce()
         creatorUserId    = creatorUserId,
         creatorGroupId   = creatorGroupId,
         freesoundApiKey  = freesoundApiKey,
+        craftpixCookie   = craftpixCookie,
     })
     if not ok then
         if lastConnected then print("[Supertool] disconnected from server") end
@@ -3129,7 +3136,7 @@ local readonlyBtn = toolbar:CreateButton(
 )
 
 local widgetInfo = DockWidgetPluginGuiInfo.new(
-    Enum.InitialDockState.Right, false, false, 340, 660, 320, 560
+    Enum.InitialDockState.Right, false, false, 340, 740, 320, 640
 )
 local widget = plugin:CreateDockWidgetPluginGui("RobloxSupertool", widgetInfo)
 widget.Title = "Roblox Supertool v" .. PLUGIN_VERSION
@@ -3211,21 +3218,26 @@ makeLabel("FreesoundHdr", "Freesound", 246, 18, Color3.fromRGB(180, 180, 200))
 local freesoundLbl = makeLabel("FreesoundStatus", "Freesound: not configured", 266, 18, Color3.fromRGB(200, 140, 140))
 local freesoundBox = makeTextBox("FreesoundKey", "Freesound API key (free at freesound.org/apiv2/apply)", freesoundApiKey, 288)
 
-local saveBtn  = makeButton("Save",  "Save",  8,   80, 322, Color3.fromRGB(60, 110, 70))
-local clearBtn = makeButton("Clear", "Clear", 92,  80, 322, Color3.fromRGB(120, 60, 60))
+-- CraftPix credentials section (session cookie for downloading freebies)
+makeLabel("CraftPixHdr", "CraftPix", 326, 18, Color3.fromRGB(180, 180, 200))
+local craftpixLbl = makeLabel("CraftPixStatus", "CraftPix: not configured", 346, 18, Color3.fromRGB(200, 140, 140))
+local craftpixBox = makeTextBox("CraftPixCookie", "CraftPix login cookie (DevTools → Application → Cookies → wordpress_logged_in_*)", craftpixCookie, 368)
+
+local saveBtn  = makeButton("Save",  "Save",  8,   80, 402, Color3.fromRGB(60, 110, 70))
+local clearBtn = makeButton("Clear", "Clear", 92,  80, 402, Color3.fromRGB(120, 60, 60))
 
 local divider = Instance.new("Frame")
 divider.Size = UDim2.new(1, -16, 0, 1)
-divider.Position = UDim2.new(0, 8, 0, 358)
+divider.Position = UDim2.new(0, 8, 0, 438)
 divider.BackgroundColor3 = Color3.fromRGB(70, 70, 80)
 divider.BorderSizePixel = 0
 divider.Parent = frame
 
-makeLabel("LogTitle", "Recent commands:", 368, 18, Color3.fromRGB(180, 180, 200))
+makeLabel("LogTitle", "Recent commands:", 448, 18, Color3.fromRGB(180, 180, 200))
 
 local logScroll = Instance.new("ScrollingFrame")
-logScroll.Size = UDim2.new(1, -16, 1, -402)
-logScroll.Position = UDim2.new(0, 8, 0, 392)
+logScroll.Size = UDim2.new(1, -16, 1, -482)
+logScroll.Position = UDim2.new(0, 8, 0, 472)
 logScroll.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
 logScroll.BorderSizePixel = 0
 logScroll.ScrollBarThickness = 6
@@ -3250,21 +3262,24 @@ saveBtn.MouseButton1Click:Connect(function()
     creatorUserId   = creatorUserBox.Text
     creatorGroupId  = creatorGroupBox.Text
     freesoundApiKey = freesoundBox.Text
-    saveSetting(SETTING_API_KEY,       apiKey)
-    saveSetting(SETTING_CREATOR_USER,  creatorUserId)
-    saveSetting(SETTING_CREATOR_GROUP, creatorGroupId)
-    saveSetting(SETTING_FREESOUND_KEY, freesoundApiKey)
+    craftpixCookie  = craftpixBox.Text
+    saveSetting(SETTING_API_KEY,         apiKey)
+    saveSetting(SETTING_CREATOR_USER,    creatorUserId)
+    saveSetting(SETTING_CREATOR_GROUP,   creatorGroupId)
+    saveSetting(SETTING_FREESOUND_KEY,   freesoundApiKey)
+    saveSetting(SETTING_CRAFTPIX_COOKIE, craftpixCookie)
     pushAllToServer()
     refreshApiKeyStatus()
 end)
 
 clearBtn.MouseButton1Click:Connect(function()
-    apiKey, creatorUserId, creatorGroupId, freesoundApiKey = "", "", "", ""
-    apiKeyBox.Text, creatorUserBox.Text, creatorGroupBox.Text, freesoundBox.Text = "", "", "", ""
-    saveSetting(SETTING_API_KEY,       "")
-    saveSetting(SETTING_CREATOR_USER,  "")
-    saveSetting(SETTING_CREATOR_GROUP, "")
-    saveSetting(SETTING_FREESOUND_KEY, "")
+    apiKey, creatorUserId, creatorGroupId, freesoundApiKey, craftpixCookie = "", "", "", "", ""
+    apiKeyBox.Text, creatorUserBox.Text, creatorGroupBox.Text, freesoundBox.Text, craftpixBox.Text = "", "", "", "", ""
+    saveSetting(SETTING_API_KEY,         "")
+    saveSetting(SETTING_CREATOR_USER,    "")
+    saveSetting(SETTING_CREATOR_GROUP,   "")
+    saveSetting(SETTING_FREESOUND_KEY,   "")
+    saveSetting(SETTING_CRAFTPIX_COOKIE, "")
     pushAllToServer()
     refreshApiKeyStatus()
 end)
@@ -3318,6 +3333,16 @@ local function updateUI()
     else
         freesoundLbl.Text = "Freesound: not configured"
         freesoundLbl.TextColor3 = Color3.fromRGB(200, 140, 140)
+    end
+
+    local cp = apiKeyStatus.craftpix
+    if cp and cp.isConfigured then
+        local suffix = cp.lastFour and ("••••" .. cp.lastFour) or "configured"
+        craftpixLbl.Text = "CraftPix: " .. suffix
+        craftpixLbl.TextColor3 = Color3.fromRGB(140, 200, 140)
+    else
+        craftpixLbl.Text = "CraftPix: not configured"
+        craftpixLbl.TextColor3 = Color3.fromRGB(200, 140, 140)
     end
 
     for _, child in ipairs(logScroll:GetChildren()) do

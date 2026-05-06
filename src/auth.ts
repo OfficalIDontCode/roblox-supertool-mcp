@@ -19,6 +19,7 @@ let API_KEY: string | null = null;
 let CREATOR_USER_ID: string | null = null;
 let CREATOR_GROUP_ID: string | null = null;
 let FREESOUND_KEY: string | null = null;
+let CRAFTPIX_COOKIE: string | null = null;
 
 export function setApiKey(key: string | null | undefined): void {
   if (!key || key.trim().length === 0) {
@@ -73,6 +74,26 @@ export function requireFreesoundKey(): string {
   return FREESOUND_KEY;
 }
 
+// ── CraftPix session cookie ────────────────────────────────────────────────
+//
+// CraftPix freebies require a logged-in WordPress session to download the
+// zip. The user pastes their `wordpress_logged_in_*` cookie value (or the
+// full `Cookie:` header if they want to be safe) into the plugin widget; we
+// pass it through verbatim on every craftpix download request. Never logged
+// or returned by the status endpoint.
+
+export function setCraftpixCookie(cookie: string | null | undefined): void {
+  if (!cookie || cookie.trim().length === 0) {
+    CRAFTPIX_COOKIE = null;
+    return;
+  }
+  CRAFTPIX_COOKIE = cookie.trim();
+}
+
+export function getCraftpixCookie(): string | null {
+  return CRAFTPIX_COOKIE;
+}
+
 type KeyStatus = { isConfigured: boolean; lastFour?: string };
 
 function statusFor(key: string | null): KeyStatus {
@@ -90,6 +111,7 @@ export function getApiKeyStatus(): {
   creatorUserId?: string;
   creatorGroupId?: string;
   freesound: KeyStatus;
+  craftpix: KeyStatus;
 } {
   const oc = statusFor(API_KEY);
   return {
@@ -98,9 +120,14 @@ export function getApiKeyStatus(): {
     creatorUserId: CREATOR_USER_ID ?? undefined,
     creatorGroupId: CREATOR_GROUP_ID ?? undefined,
     freesound: statusFor(FREESOUND_KEY),
+    craftpix: statusFor(CRAFTPIX_COOKIE),
   };
 }
 
 export function getFreesoundKeyStatus(): KeyStatus {
   return statusFor(FREESOUND_KEY);
+}
+
+export function getCraftpixCookieStatus(): KeyStatus {
+  return statusFor(CRAFTPIX_COOKIE);
 }

@@ -33,6 +33,8 @@ import { getApiKeyStatus } from "../auth.js";
 import * as polyhaven from "../scrapers/polyhaven.js";
 import * as kenney from "../scrapers/kenney.js";
 import * as freesound from "../scrapers/freesound.js";
+import * as gameicons from "../scrapers/gameicons.js";
+import * as craftpix from "../scrapers/craftpix.js";
 import { fetchBase64 } from "../scrapers/common.js";
 import { captureStudioWindow, listStudioWindows } from "../screenshot.js";
 import { promises as fsp } from "node:fs";
@@ -2154,6 +2156,330 @@ export const TOOLS: ToolDef[] = [
     mutates: false,
     local: async (args) => kenney.downloadPackZip(args.slug as string),
     schema: z.object({ slug: z.string().describe("Pack slug from kenney_search") }),
+  },
+  {
+    name: "kenney_search_all",
+    description:
+      "Scrape Kenney's FULL site (~280+ packs across all pages) and return matching packs with thumbnails + tags. Cached for 6h. Use this when kenney_search's curated 30-pack catalog misses what you need.",
+    mutates: false,
+    local: async (args) => {
+      const packs = await kenney.searchAll(
+        args.query as string | undefined,
+        args.contentType as kenney.KenneyContentType | undefined,
+      );
+      const limit = (args.limit as number | undefined) ?? 30;
+      return { count: packs.length, packs: packs.slice(0, limit) };
+    },
+    schema: z.object({
+      query: z.string().optional(),
+      contentType: z.enum(["3d", "2d", "ui", "audio", "fonts"]).optional(),
+      limit: z.number().int().min(1).max(200).default(30),
+    }),
+  },
+  {
+    name: "kenney_search_visual",
+    description:
+      "Scrape Kenney's full site and return inline thumbnails for the top N matches so the AI can pick visually before calling kenney_get_pack_detail or kenney_download_pack.",
+    mutates: false,
+    local: async (args) => {
+      const all = await kenney.searchAll(
+        args.query as string | undefined,
+        args.contentType as kenney.KenneyContentType | undefined,
+      );
+      const previewCount = (args.previewCount as number | undefined) ?? 8;
+      const top = all.slice(0, previewCount);
+      const content: ContentBlock[] = [
+        {
+          type: "text",
+          text: `Found ${all.length} Kenney packs (showing top ${top.length}):\n\n` +
+            top.map((p, i) => `${i + 1}. ${p.name}  [${p.slug}]  tags: ${p.tags.slice(0, 4).join(", ")}`).join("\n"),
+        },
+      ];
+      for (const p of top) {
+        if (!p.thumbnailUrl) continue;
+        try {
+          const buf = await kenney.fetchImageBuffer(p.thumbnailUrl);
+          content.push({ type: "text", text: `${p.name} [${p.slug}]` });
+          content.push({ type: "image", data: buf.toString("base64"), mimeType: "image/png" });
+        } catch { /* skip on fetch failure */ }
+      }
+      return { __mcpContent: content };
+    },
+    schema: z.object({
+      query: z.string().optional(),
+      contentType: z.enum(["3d", "2d", "ui", "audio", "fonts"]).optional(),
+      previewCount: z.number().int().min(1).max(20).default(8),
+    }),
+  },
+  {
+    name: "kenney_get_pack_detail",
+    description:
+      "Scrape full details for a Kenney pack: description, file count, license, screenshot URLs, current zip URL. Use before downloading to verify content + see what's inside.",
+    mutates: false,
+    local: async (args) => kenney.getPackDetail(args.slug as string),
+    schema: z.object({ slug: z.string() }),
+  },
+
+  // ─── Game-icons.net (3000+ CC-BY icons, no API key) ──────────────────────
+  {
+    name: "gameicons_status",
+    description:
+      "Report the size of the cached game-icons.net catalog (3000+ icons across 40+ authors). First call seeds the cache via the GitHub repo's recursive tree API.",
+    mutates: false,
+    local: async () => gameicons.getCatalogStats(),
+    schema: z.object({}),
+  },
+  {
+    name: "gameicons_search",
+    description:
+      "Search 3000+ game-icons.net icons by name and/or author. Returns metadata only — for thumbnails use gameicons_search_visual. All icons are CC-BY 3.0 (attribution required).",
+    mutates: false,
+    local: async (args) => {
+      const icons = await gameicons.search({
+        query: args.query as string | undefined,
+        author: args.author as string | undefined,
+        limit: args.limit as number | undefined,
+      });
+      return { count: icons.length, icons };
+    },
+    schema: z.object({
+      query: z.string().optional().describe("Free-text query matched against icon name (e.g. 'sword', 'fire'). Hyphens treated as spaces."),
+      author: z.string().optional().describe("Filter by author (e.g. 'lorc', 'delapouite')"),
+      limit: z.number().int().min(1).max(200).default(30),
+    }),
+  },
+  {
+    name: "gameicons_search_visual",
+    description:
+      "Search game-icons.net and return inline rasterized PNG previews of the top N hits (white-on-black 96px) so the AI can visually pick the best one.",
+    mutates: false,
+    local: async (args) => {
+      const icons = await gameicons.search({
+        query: args.query as string | undefined,
+        author: args.author as string | undefined,
+        limit: args.previewCount as number,
+      });
+      const content: ContentBlock[] = [
+        {
+          type: "text",
+          text: `Found ${icons.length} game-icons matches:\n\n` +
+            icons.map((it, i) => `${i + 1}. ${it.id}`).join("\n"),
+        },
+      ];
+      for (const it of icons) {
+        try {
+          const b64 = await gameicons.thumbnailBase64(it.id, { size: 96 });
+          content.push({ type: "text", text: it.id });
+          content.push({ type: "image", data: b64, mimeType: "image/png" });
+        } catch { /* skip on render failure */ }
+      }
+      return { __mcpContent: content };
+    },
+    schema: z.object({
+      query: z.string().optional(),
+      author: z.string().optional(),
+      previewCount: z.number().int().min(1).max(20).default(12),
+    }),
+  },
+  {
+    name: "gameicons_download_png",
+    description:
+      "Rasterize a game-icons SVG to a PNG with custom foreground/background colors. Returns local path — feed to asset_upload_image. Default: white icon on black background, 512px.",
+    mutates: false,
+    local: async (args) => gameicons.rasterize(args.id as string, {
+      size: args.size as number | undefined,
+      fg: args.fg as string | undefined,
+      bg: args.transparent ? null : (args.bg as string | undefined),
+    }),
+    schema: z.object({
+      id: z.string().describe("Icon id from gameicons_search, format '<author>/<name>'"),
+      size: z.number().int().min(16).max(2048).default(512),
+      fg: z.string().regex(/^[0-9a-fA-F]{6}$/).default("ffffff").describe("Foreground hex (no #)"),
+      bg: z.string().regex(/^[0-9a-fA-F]{6}$/).default("000000").describe("Background hex (no #) — ignored if transparent=true"),
+      transparent: z.boolean().default(false).describe("If true, background is transparent and `bg` is ignored"),
+    }),
+  },
+  {
+    name: "gameicons_download_svg",
+    description:
+      "Download a game-icons SVG (raw, no color transform). Roblox doesn't accept SVG directly — prefer gameicons_download_png unless you have your own pipeline.",
+    mutates: false,
+    local: async (args) => gameicons.downloadSvg(args.id as string),
+    schema: z.object({ id: z.string() }),
+  },
+  {
+    name: "gameicons_upload_as_decal",
+    description:
+      "One-shot: rasterize a game-icons SVG and upload the PNG to Roblox as a Decal. Returns rbxassetid:// URL. Requires Open Cloud API key. CC-BY 3.0 — credit the author in your game's description.",
+    mutates: true,
+    local: async (args) => {
+      const dl = await gameicons.rasterize(args.id as string, {
+        size: args.size as number | undefined,
+        fg: args.fg as string | undefined,
+        bg: args.transparent ? null : (args.bg as string | undefined),
+      });
+      const icon = await gameicons.getIcon(args.id as string);
+      const result = await uploadAsset({
+        filePath: dl.filePath,
+        assetType: "Decal",
+        displayName: (args.name as string | undefined) ?? `gameicons_${icon.author}_${icon.name}`,
+        description: `game-icons.net (${icon.author}) — CC-BY 3.0`,
+        pollTimeoutMs: 30000,
+      });
+      if (!result.ok) throw new Error(result.error ?? "upload failed");
+      return {
+        ...result,
+        source: { provider: "gameicons", id: args.id, author: icon.author, name: icon.name, sourceUrl: dl.sourceUrl, license: "CC-BY 3.0" },
+      };
+    },
+    schema: z.object({
+      id: z.string(),
+      size: z.number().int().min(64).max(1024).default(512),
+      fg: z.string().regex(/^[0-9a-fA-F]{6}$/).default("ffffff"),
+      bg: z.string().regex(/^[0-9a-fA-F]{6}$/).default("000000"),
+      transparent: z.boolean().default(true),
+      name: z.string().optional(),
+    }),
+  },
+
+  // ─── CraftPix.net (free 2D game art — needs login cookie for downloads) ──
+  {
+    name: "craftpix_status",
+    description:
+      "Check whether the CraftPix login cookie is configured. Browsing/previews work without it; downloading freebie zips requires it.",
+    mutates: false,
+    local: async () => {
+      const status = getApiKeyStatus();
+      return {
+        configured: status.craftpix.isConfigured,
+        hint: status.craftpix.isConfigured
+          ? "OK — CraftPix freebie downloads available."
+          : "Log into craftpix.net in your browser, open DevTools → Application → Cookies → craftpix.net, copy the value of `wordpress_logged_in_*` (or the full Cookie header), and paste into the CraftPix field in the Supertool widget.",
+      };
+    },
+    schema: z.object({}),
+  },
+  {
+    name: "craftpix_list_freebies",
+    description:
+      "Scrape one page of CraftPix's freebies listing. ~30 items per page; total ~280 pages. Returns slug, name, thumbnail URL, category. No login required.",
+    mutates: false,
+    local: async (args) => {
+      const items = await craftpix.listFreebies({
+        page: args.page as number | undefined,
+        query: args.query as string | undefined,
+      });
+      return { page: (args.page as number | undefined) ?? 1, count: items.length, items };
+    },
+    schema: z.object({
+      page: z.number().int().min(1).max(300).default(1),
+      query: z.string().optional().describe("Optional client-side filter applied to this page's results"),
+    }),
+  },
+  {
+    name: "craftpix_search_visual",
+    description:
+      "Browse CraftPix freebies with inline thumbnails so the AI can pick visually. Optionally pre-filter by query (matched on names within the listed pages).",
+    mutates: false,
+    local: async (args) => {
+      const pages = (args.pagesToScan as number | undefined) ?? 1;
+      const query = args.query as string | undefined;
+      let collected: craftpix.CraftpixListItem[] = [];
+      for (let p = 1; p <= pages; p++) {
+        const items = await craftpix.listFreebies({ page: p, query });
+        collected = collected.concat(items);
+        if (collected.length >= ((args.previewCount as number | undefined) ?? 8) * 2) break;
+      }
+      const previewCount = (args.previewCount as number | undefined) ?? 8;
+      const top = collected.slice(0, previewCount);
+      const content: ContentBlock[] = [
+        {
+          type: "text",
+          text: `CraftPix freebies (scanned ${pages} page${pages > 1 ? "s" : ""}, showing top ${top.length} of ${collected.length}):\n\n` +
+            top.map((it, i) => `${i + 1}. ${it.name}  [${it.slug}]${it.category ? "  in: " + it.category : ""}`).join("\n"),
+        },
+      ];
+      for (const it of top) {
+        if (!it.thumbnailUrl) continue;
+        try {
+          const buf = await craftpix.fetchThumbnailBuffer(it.thumbnailUrl);
+          // CraftPix serves WebP for thumbnails — MCP image blocks accept any
+          // mimeType the client supports, but most clients want png/jpg.
+          // We pass through the original mime since Claude renders WebP fine.
+          const mime = it.thumbnailUrl.endsWith(".webp")
+            ? "image/webp"
+            : it.thumbnailUrl.match(/\.(jpe?g)(\?|$)/i) ? "image/jpeg" : "image/png";
+          content.push({ type: "text", text: `${it.name} [${it.slug}]` });
+          content.push({ type: "image", data: buf.toString("base64"), mimeType: mime });
+        } catch { /* skip */ }
+      }
+      return { __mcpContent: content };
+    },
+    schema: z.object({
+      query: z.string().optional(),
+      pagesToScan: z.number().int().min(1).max(10).default(1),
+      previewCount: z.number().int().min(1).max(20).default(8),
+    }),
+  },
+  {
+    name: "craftpix_get_detail",
+    description:
+      "Scrape a CraftPix freebie's full detail page: name, description, all preview images, file formats (AI/EPS/PNG/...), download URL. No login required for metadata.",
+    mutates: false,
+    local: async (args) => craftpix.getDetail(args.slug as string),
+    schema: z.object({ slug: z.string().describe("Freebie slug from craftpix_list_freebies") }),
+  },
+  {
+    name: "craftpix_download_preview",
+    description:
+      "Download a single preview image from a CraftPix freebie page (PNG/JPG/WebP). No login required. Returns local path — feed to asset_upload_image (note Roblox doesn't accept WebP — convert first if needed).",
+    mutates: false,
+    local: async (args) => craftpix.downloadPreview(args.slug as string, (args.index as number | undefined) ?? 0),
+    schema: z.object({
+      slug: z.string(),
+      index: z.number().int().min(0).default(0).describe("0-based index into the preview images array (see craftpix_get_detail)"),
+    }),
+  },
+  {
+    name: "craftpix_download_freebie",
+    description:
+      "Download the full freebie zip from CraftPix. Requires the login cookie set in the Supertool widget. Returns local zip path — extract and upload individual files via asset_upload_image / asset_upload_audio.",
+    mutates: false,
+    local: async (args) => craftpix.downloadFreebie(args.slug as string),
+    schema: z.object({ slug: z.string() }),
+  },
+  {
+    name: "craftpix_upload_preview_as_decal",
+    description:
+      "One-shot: download a CraftPix preview image and upload to Roblox as a Decal. Skips WebP previews (not Open Cloud-compatible). Returns rbxassetid:// URL. Requires Open Cloud API key but NOT a CraftPix cookie (previews are public).",
+    mutates: true,
+    local: async (args) => {
+      const detail = await craftpix.getDetail(args.slug as string);
+      // Pick the first non-webp preview, or fail with a clear message.
+      const idx = (args.index as number | undefined) ?? 0;
+      const previews = detail.previewImages.filter((u) => !/\.webp(\?|$)/i.test(u));
+      if (!previews.length) {
+        throw new Error(`No PNG/JPG previews available for ${args.slug} (all are WebP). Use craftpix_download_freebie + extract manually.`);
+      }
+      if (idx < 0 || idx >= previews.length) {
+        throw new Error(`Preview index ${idx} out of range (have ${previews.length} non-webp previews).`);
+      }
+      const dl = await craftpix.downloadPreview(args.slug as string, detail.previewImages.indexOf(previews[idx]));
+      const result = await uploadAsset({
+        filePath: dl.filePath,
+        assetType: "Decal",
+        displayName: (args.name as string | undefined) ?? `craftpix_${args.slug}`,
+        description: `CraftPix preview: ${detail.name} (${detail.pageUrl})`,
+        pollTimeoutMs: 30000,
+      });
+      if (!result.ok) throw new Error(result.error ?? "upload failed");
+      return { ...result, source: { provider: "craftpix", slug: args.slug, sourceUrl: dl.sourceUrl, pageUrl: detail.pageUrl } };
+    },
+    schema: z.object({
+      slug: z.string(),
+      index: z.number().int().min(0).default(0),
+      name: z.string().optional(),
+    }),
   },
 
   // ─── Freesound (CC-licensed audio — requires FREESOUND_API_KEY env var) ──

@@ -1,6 +1,6 @@
 {
   "name": "roblox-supertool-mcp",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "Unified MCP server for Roblox Studio: scripts, workspace, bulk ops, spatial queries, animation, sync, viewport.",
   "type": "module",
   "bin": {
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "@resvg/resvg-js": "^2.6.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

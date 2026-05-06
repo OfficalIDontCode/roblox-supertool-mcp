@@ -1,3 +1,25 @@
+# Roblox Supertool MCP — v0.5
+
+## What's new in 0.5 — Asset scraping expansion
+
+Three new scrapers, all with **visual search** (inline thumbnails) so the AI picks based on what assets actually look like, not blind text matching.
+
+### Game-icons.net (~17 tools added across all scrapers)
+- 4,239 CC-BY 3.0 game icons across 37 authors. Sourced from the upstream GitHub repo and rasterized locally with @resvg/resvg-js (no native deps).
+- Tools: `gameicons_status`, `gameicons_search`, `gameicons_search_visual`, `gameicons_download_png`, `gameicons_download_svg`, `gameicons_upload_as_decal`.
+- Color customizable: foreground / background hex, transparent backgrounds, any size from 16-2048px.
+
+### CraftPix.net freebies
+- 280+ pages of free 2D game art (sprites, tilesets, GUI, icons).
+- Tools: `craftpix_status`, `craftpix_list_freebies`, `craftpix_search_visual`, `craftpix_get_detail`, `craftpix_download_preview`, `craftpix_download_freebie`, `craftpix_upload_preview_as_decal`.
+- Browse + previews work without auth. Downloading the full zip needs a CraftPix login cookie (paste in the Supertool widget — see API keys section).
+
+### Kenney.nl full-site enhancement
+- Old `kenney_search` covered ~30 curated packs. New tools scrape the **entire** /assets pagination (~280 packs across 13 pages) with thumbnails and per-pack details.
+- Tools: `kenney_search_all`, `kenney_search_visual`, `kenney_get_pack_detail` (description, screenshots, file count, license).
+
+---
+
 # Roblox Supertool MCP — v0.3
 
 ## What's new in 0.3

@@ -102,7 +102,7 @@ async function main(): Promise<void> {
   startHttpBridge();
 
   const server = new Server(
-    { name: "roblox-supertool", version: "0.2.0" },
+    { name: "roblox-supertool", version: "0.5.0" },
     { capabilities: { tools: {} } },
   );
 
